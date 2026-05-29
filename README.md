@@ -4,6 +4,8 @@
 
 Ubuntu 服务器完整部署步骤见 [DEPLOY_UBUNTU.md](DEPLOY_UBUNTU.md)。
 
+运行镜像基于 `nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04`，容器内使用 Python 3.12。
+
 ## 目录结构
 
 ```text

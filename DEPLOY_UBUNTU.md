@@ -16,6 +16,7 @@
 - NVIDIA 驱动正常
 - Docker Engine + Docker Compose v2
 - NVIDIA Container Toolkit
+- 服务容器内运行 Python 3.12，镜像构建时会安装 Python 3.12
 
 先登录服务器：
 
@@ -263,6 +264,8 @@ cd /opt/gpu-services
 docker compose up -d --build
 ```
 
+构建镜像时会访问 Docker Hub、Ubuntu apt 源、deadsnakes Python 3.12 PPA、`bootstrap.pypa.io` 和 Python 包镜像源。服务器如果不能访问外网，建议在能联网的机器上构建镜像后推送到内网镜像仓库。
+
 查看容器：
 
 ```bash
@@ -280,6 +283,14 @@ docker compose logs -f --tail=100
 ```bash
 docker compose logs -f --tail=100 gpu-worker-0
 ```
+
+确认容器内 Python 版本：
+
+```bash
+docker exec gpu-worker-0 python --version
+```
+
+预期为 Python 3.12.x。
 
 ## 9. 验证服务
 
