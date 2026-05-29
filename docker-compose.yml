@@ -1,0 +1,81 @@
+x-gpu-worker-common: &gpu-worker-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  environment:
+    PROJECTS_ROOT: /workspace/projects
+    LOG_LEVEL: INFO
+    MAX_TENSOR_ITEMS: "12582912"
+    MAX_LOADED_MODELS: "0"
+    GPU_QUEUE_LIMIT: "1"
+    WARMUP_MODELS: ""
+    API_TOKEN: ""
+  volumes:
+    - gpu-share-volume:/workspace/projects:ro
+  networks:
+    - gpu-bridge
+  healthcheck:
+    test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).read()\""]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 30s
+
+services:
+  gpu-worker-0:
+    <<: *gpu-worker-common
+    container_name: gpu-worker-0
+    hostname: gpu-worker-0
+    ports:
+      - "127.0.0.1:9001:8000"
+    environment:
+      PROJECTS_ROOT: /workspace/projects
+      LOG_LEVEL: INFO
+      MAX_TENSOR_ITEMS: "12582912"
+      MAX_LOADED_MODELS: "0"
+      GPU_QUEUE_LIMIT: "1"
+      WARMUP_MODELS: ""
+      API_TOKEN: ""
+      NVIDIA_VISIBLE_DEVICES: "0"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: ["gpu"]
+
+  gpu-worker-1:
+    <<: *gpu-worker-common
+    container_name: gpu-worker-1
+    hostname: gpu-worker-1
+    ports:
+      - "127.0.0.1:9002:8000"
+    environment:
+      PROJECTS_ROOT: /workspace/projects
+      LOG_LEVEL: INFO
+      MAX_TENSOR_ITEMS: "12582912"
+      MAX_LOADED_MODELS: "0"
+      GPU_QUEUE_LIMIT: "1"
+      WARMUP_MODELS: ""
+      API_TOKEN: ""
+      NVIDIA_VISIBLE_DEVICES: "1"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["1"]
+              capabilities: ["gpu"]
+
+networks:
+  gpu-bridge:
+    name: gpu-bridge
+    driver: bridge
+
+volumes:
+  gpu-share-volume:
+    external: true
