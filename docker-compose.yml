@@ -16,6 +16,7 @@ x-gpu-worker-common: &gpu-worker-common
     GPU_QUEUE_LIMIT: ${GPU_QUEUE_LIMIT:-1}
     WARMUP_MODELS: ${WARMUP_MODELS:-}
     API_TOKEN: ${API_TOKEN:-}
+    TZ: Asia/Shanghai
   volumes:
     # 宿主机模型目录只读挂载，默认使用本项目同级的 ../shared-models。
     - ${MODELS_HOST_DIR:-../shared-models}:/models:ro
@@ -45,6 +46,7 @@ services:
       GPU_QUEUE_LIMIT: ${GPU_QUEUE_LIMIT:-1}
       WARMUP_MODELS: ${WARMUP_MODELS:-}
       API_TOKEN: ${API_TOKEN:-}
+      TZ: Asia/Shanghai
       # 限制该 worker 只能看到指定 GPU。
       NVIDIA_VISIBLE_DEVICES: ${GPU_WORKER_0_DEVICE:-0}
       NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
@@ -71,6 +73,7 @@ services:
       GPU_QUEUE_LIMIT: ${GPU_QUEUE_LIMIT:-1}
       WARMUP_MODELS: ${WARMUP_MODELS:-}
       API_TOKEN: ${API_TOKEN:-}
+      TZ: Asia/Shanghai
       # 限制该 worker 只能看到指定 GPU。
       NVIDIA_VISIBLE_DEVICES: ${GPU_WORKER_1_DEVICE:-1}
       NVIDIA_DRIVER_CAPABILITIES: "compute,utility"

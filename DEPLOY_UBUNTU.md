@@ -129,7 +129,7 @@ sudo systemctl restart docker
 验证 GPU 容器：
 
 ```bash
-docker run --rm --gpus all nvidia/cuda:12.1.1-base-ubuntu22.04 nvidia-smi
+docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
 ```
 
 能在容器内看到 GPU 列表，说明 Docker GPU 环境正常。
@@ -479,7 +479,7 @@ python -c "import onnxruntime as ort; print(ort.get_available_providers())"
 
 ```bash
 nvidia-smi
-docker run --rm --gpus all nvidia/cuda:12.1.1-base-ubuntu22.04 nvidia-smi
+docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
 docker compose logs --tail=100 gpu-worker-0
 ```
 
