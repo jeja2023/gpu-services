@@ -9,3 +9,5 @@ README.md
 DEPLOY_UBUNTU.md
 .env
 .env.example
+shared-models/
+models/

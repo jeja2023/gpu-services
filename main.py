@@ -31,7 +31,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("gpu-worker")
 
-PROJECTS_ROOT = Path(os.getenv("PROJECTS_ROOT", "/workspace/projects")).resolve()
+MODELS_ROOT = Path(os.getenv("MODELS_ROOT", "/models")).resolve()
 MAX_TENSOR_ITEMS = parse_int_env("MAX_TENSOR_ITEMS", 12_582_912)
 MAX_LOADED_MODELS = parse_int_env("MAX_LOADED_MODELS", 0)
 GPU_QUEUE_LIMIT = parse_int_env("GPU_QUEUE_LIMIT", 1)
@@ -155,13 +155,13 @@ def split_cache_key(value: str) -> tuple[str, str]:
 
 
 def get_model_path(project_name: str, model_name: str) -> Path:
-    model_path = (PROJECTS_ROOT / project_name / "models" / model_name).resolve()
+    model_path = (MODELS_ROOT / project_name / model_name).resolve()
     try:
-        model_path.relative_to(PROJECTS_ROOT)
+        model_path.relative_to(MODELS_ROOT)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="model path must stay inside the shared projects directory",
+            detail="model path must stay inside the shared models directory",
         ) from exc
 
     if not model_path.is_file():
@@ -484,7 +484,7 @@ async def health() -> dict[str, Any]:
     return {
         "status": "healthy",
         "version": app.version,
-        "projects_root": str(PROJECTS_ROOT),
+        "models_root": str(MODELS_ROOT),
         "loaded_models": sorted(MODEL_REGISTRY.keys()),
         "available_providers": ort.get_available_providers(),
     }

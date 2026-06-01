@@ -211,18 +211,28 @@ GPU_WORKER_1_DEVICE=1
 openssl rand -hex 32
 ```
 
-## 7. 创建共享模型卷
+## 7. 创建共享模型目录
 
-创建 Docker volume：
+默认模型目录与本项目目录同级。推荐结构：
 
-```bash
-docker volume create gpu-share-volume
+```text
+~/project/
+├── gpu-services/
+├── other-project/
+└── shared-models/
 ```
 
-查看卷位置：
+如果本项目在 `~/project/gpu-services`，模型目录就是：
+
+```text
+~/project/shared-models
+```
+
+创建目录：
 
 ```bash
-docker volume inspect gpu-share-volume
+cd /opt/gpu-services
+mkdir -p ../shared-models
 ```
 
 准备本地模型目录，例如：
@@ -232,28 +242,42 @@ mkdir -p /opt/model-upload/person_service
 cp /path/to/your_model.onnx /opt/model-upload/person_service/
 ```
 
-把模型复制到共享卷，目录必须是 `项目名/models/模型文件`：
+把模型复制到共享目录，目录必须是 `项目名/模型文件`：
 
 ```bash
-docker run --rm \
-  -v gpu-share-volume:/projects \
-  -v /opt/model-upload/person_service:/src:ro \
-  ubuntu:22.04 \
-  bash -lc "mkdir -p /projects/person_service/models && cp /src/*.onnx /projects/person_service/models/"
+mkdir -p ../shared-models/person_service
+cp /opt/model-upload/person_service/*.onnx ../shared-models/person_service/
 ```
 
-检查卷内模型：
+检查共享目录内模型：
 
 ```bash
-docker run --rm -v gpu-share-volume:/projects ubuntu:22.04 \
-  find /projects -maxdepth 4 -type f -name '*.onnx' -print
+find ../shared-models -maxdepth 3 -type f -name '*.onnx' -print
 ```
 
 预期类似：
 
 ```text
-/projects/person_service/models/your_model.onnx
+../shared-models/person_service/your_model.onnx
 ```
+
+如果你之前已经按旧结构放过模型，例如：
+
+```text
+../shared-models/person_service/models/your_model.onnx
+```
+
+可以迁移成新结构：
+
+```bash
+for d in ../shared-models/*/models; do
+  [ -d "$d" ] || continue
+  project="$(dirname "$d")"
+  cp "$d"/*.onnx "$project"/
+done
+```
+
+确认新结构没问题后，再按需清理旧的 `models` 子目录。
 
 ## 8. 构建并启动服务
 
@@ -382,16 +406,13 @@ http://gpu-worker-1:8000/predict
 
 ## 11. 更新模型
 
-把新 ONNX 文件复制进共享卷后，已加载模型不会自动热更新。
+把新 ONNX 文件复制进共享模型目录后，已加载模型不会自动热更新。
 
 复制新模型：
 
 ```bash
-docker run --rm \
-  -v gpu-share-volume:/projects \
-  -v /opt/model-upload/person_service:/src:ro \
-  ubuntu:22.04 \
-  bash -lc "cp /src/your_model.onnx /projects/person_service/models/your_model.onnx"
+mkdir -p ../shared-models/person_service
+cp /opt/model-upload/person_service/your_model.onnx ../shared-models/person_service/your_model.onnx
 ```
 
 重载单个 worker 的模型：
@@ -474,17 +495,16 @@ docker compose logs --tail=100 gpu-worker-0
 确认模型路径：
 
 ```bash
-docker run --rm -v gpu-share-volume:/projects ubuntu:22.04 \
-  find /projects -maxdepth 4 -type f -print
+find ../shared-models -maxdepth 3 -type f -print
 ```
 
 服务要求路径：
 
 ```text
-/projects/<project_name>/models/<model_name>
+../shared-models/<project_name>/<model_name>
 ```
 
-请求里的 `project_name` 和 `model_name` 必须和卷内目录、文件名完全一致。
+请求里的 `project_name` 和 `model_name` 必须和共享目录里的目录、文件名完全一致。
 
 ### 显存不足
 

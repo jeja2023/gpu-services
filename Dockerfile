@@ -4,7 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PROJECTS_ROOT=/workspace/projects
+    MODELS_ROOT=/models
 
 WORKDIR /workspace
 

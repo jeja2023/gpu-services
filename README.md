@@ -16,12 +16,14 @@ gpu-services/
 └── requirements.txt
 ```
 
-共享模型卷内的项目目录需要按下面格式放置：
+共享模型目录默认与本项目目录同级。例如：
 
 ```text
-/workspace/projects/
-└── your_project/
-    └── models/
+~/project/
+├── gpu-services/
+├── other-project/
+└── shared-models/
+    └── your_project/
         └── your_model.onnx
 ```
 
@@ -38,17 +40,17 @@ docker run --rm --gpus all nvidia/cuda:12.1.1-base-ubuntu22.04 nvidia-smi
 
 ## 首次部署
 
-创建共享模型卷：
+创建共享模型目录：
 
 ```bash
-docker volume create gpu-share-volume
+mkdir -p ../shared-models
 ```
 
-把模型放入共享卷。下面命令只是示例，按你的实际项目名和模型文件调整：
+把模型放入共享目录。下面命令只是示例，按你的实际项目名和模型文件调整：
 
 ```bash
-docker run --rm -v gpu-share-volume:/projects -v "$PWD/models":/src ubuntu:22.04 \
-  bash -lc "mkdir -p /projects/person_service/models && cp /src/*.onnx /projects/person_service/models/"
+mkdir -p ../shared-models/person_service
+cp "$PWD/models"/*.onnx ../shared-models/person_service/
 ```
 
 构建并启动：
@@ -147,14 +149,14 @@ curl "http://127.0.0.1:9001/model-info?project_name=person_service&model_name=yo
 
 ### 模型缓存
 
-- 模型按 `project_name/model_name` 懒加载，第一次请求时从共享卷加载到当前 worker 的进程内存和 GPU 显存。
+- 模型按 `project_name/model_name` 懒加载，第一次请求时从共享模型目录加载到当前 worker 的进程内存和 GPU 显存。
 - 缓存是 worker 本地缓存，不在两个 worker 之间共享。同一个模型如果同时打到 `gpu-worker-0` 和 `gpu-worker-1`，会分别在两张 GPU 上各加载一份。
 - 模型加载后默认不会自动卸载，直到容器重启或进程退出。这可以降低后续请求延迟，但会持续占用显存。
 - 首次并发请求同一个模型时有加载锁，只有一个请求执行加载，其它请求等待加载完成后复用缓存。
 - `MAX_LOADED_MODELS=0` 表示不限制缓存模型数量。设置为正整数后会启用 LRU 淘汰，超过上限时卸载最久未使用的模型。
 - 可以通过 `WARMUP_MODELS` 在容器启动时预热模型，格式为逗号分隔的 `project/model.onnx`，例如 `person_service/reid.onnx,person_service/face.onnx`。
 - `/unload` 可以手动卸载单个模型，`/reload` 可以在替换 ONNX 文件后强制重新加载。
-- 如果替换了共享卷里的 ONNX 文件，已加载 worker 不会自动热更新。需要重启对应 worker 才能加载新模型：
+- 如果替换了共享模型目录里的 ONNX 文件，已加载 worker 不会自动热更新。需要重启对应 worker 才能加载新模型：
 
 ```bash
 docker compose restart gpu-worker-0
@@ -211,7 +213,8 @@ http://gpu-worker-1:8000/predict
 
 通过 `docker-compose.yml` 的环境变量调整：
 
-- `PROJECTS_ROOT`: 模型共享目录，默认 `/workspace/projects`。
+- `MODELS_HOST_DIR`: 宿主机模型共享目录，默认 `../shared-models`，即本项目同级目录。
+- `MODELS_ROOT`: 容器内模型目录，固定为 `/models`。
 - `LOG_LEVEL`: 日志级别，默认 `INFO`。
 - `MAX_TENSOR_ITEMS`: 单次请求最大 tensor 元素数，默认 `12582912`。
 - `MAX_LOADED_MODELS`: 单 worker 最大缓存模型数，默认 `0` 表示不限制；正整数启用 LRU 淘汰。
