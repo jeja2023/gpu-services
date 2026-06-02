@@ -1762,11 +1762,12 @@ async def infer_person_tracks(
             "output_shapes": embedding_meta["output_shapes"],
             "inference_mode": embedding_meta["inference_mode"],
             "embedding_dim": embedding_meta["embedding_dim"],
-            "embedding_count": embedding_count,
+            "embedding_count": result["embedding_count"],
         },
         "frames": result["frames"],
         "frame_count": len(result["frames"]),
         "person_count": result["person_count"],
+        "embedding_count": result["embedding_count"],
     }
 
 
@@ -1874,6 +1875,7 @@ async def infer_video_person_tracks(
         "frames": result["frames"],
         "frame_count": len(result["frames"]),
         "person_count": result["person_count"],
+        "embedding_count": result["embedding_count"],
     }
 
 
@@ -2003,6 +2005,7 @@ async def infer_stream_person_tracks(
         "frames": result["frames"],
         "frame_count": len(result["frames"]),
         "person_count": result["person_count"],
+        "embedding_count": result["embedding_count"],
     }
 
 
