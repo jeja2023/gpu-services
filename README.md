@@ -13,6 +13,7 @@ gpu-services/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── main.py
+├── models.yml
 └── requirements.txt
 ```
 
@@ -74,7 +75,9 @@ curl http://127.0.0.1:9001/ready
 ```bash
 GET /health
 GET /ready
+GET /ready/deep
 GET /models
+GET /model-configs
 GET /metrics
 GET /model-info?project_name=person_service&model_name=your_model.onnx
 ```
@@ -115,10 +118,121 @@ curl -X POST http://127.0.0.1:9001/predict \
 运维接口：
 
 ```bash
+POST /infer/persons
+POST /infer/person-embeddings
+POST /infer/person-tracks
+POST /infer/video/person-tracks
+POST /infer/stream/person-tracks
+POST /debug/model-output
 POST /warmup
 POST /reload
 POST /unload
 ```
+
+多人检测接口：
+
+```bash
+curl -X POST http://127.0.0.1:9001/infer/persons \
+  -F "project_name=cross_camera_tracking" \
+  -F "model_name=yolov8n.onnx" \
+  -F "confidence=0.25" \
+  -F "iou=0.45" \
+  -F "files=@frame-001.jpg" \
+  -F "files=@frame-002.jpg"
+```
+
+`/infer/persons` 会在服务内完成图片解码、letterbox 预处理、YOLO 推理、person 类过滤和 NMS，只返回每帧的人体框，不再要求调用方解析 YOLO 原始 tensor。单次请求默认最多 16 张图，每张图默认最大 10MB，可通过 `MAX_PERSON_FRAMES` 和 `MAX_IMAGE_BYTES` 调整。
+
+响应示例：
+
+```json
+{
+  "status": "success",
+  "model": "cross_camera_tracking/yolov8n.onnx",
+  "frame_count": 2,
+  "person_count": 3,
+  "frames": [
+    {
+      "frame_index": 0,
+      "filename": "frame-001.jpg",
+      "width": 1920,
+      "height": 1080,
+      "person_count": 2,
+      "persons": [
+        {
+          "box": [100.5, 80.2, 230.1, 420.9],
+          "score": 0.91,
+          "class_id": 0,
+          "class_name": "person"
+        }
+      ]
+    }
+  ]
+}
+```
+
+ReID 向量接口：
+
+```bash
+curl -X POST http://127.0.0.1:9001/infer/person-embeddings \
+  -F "project_name=cross_camera_tracking" \
+  -F "model_name=osnet_ibn_x1_0.onnx" \
+  -F "include_vectors=true" \
+  -F "files=@person-001.jpg" \
+  -F "files=@person-002.jpg"
+```
+
+组合检测 + ReID 接口：
+
+```bash
+curl -X POST http://127.0.0.1:9001/infer/person-tracks \
+  -F "detector_project_name=cross_camera_tracking" \
+  -F "detector_model_name=yolov8n.onnx" \
+  -F "reid_project_name=cross_camera_tracking" \
+  -F "reid_model_name=osnet_ibn_x1_0.onnx" \
+  -F "include_embeddings=false" \
+  -F "files=@frame-001.jpg" \
+  -F "files=@frame-002.jpg"
+```
+
+`/infer/person-tracks` 会先检测每帧人体，再裁剪人体并生成 ReID embedding。它不会伪造跨帧 `track_id`；调用方可以用返回的 `embedding_index`、`embedding_dim` 和可选 `embedding` 做自己的轨迹关联。
+
+离线视频解析接口：
+
+```bash
+curl -X POST http://127.0.0.1:9001/infer/video/person-tracks \
+  -F "file=@clip.mp4" \
+  -F "frame_interval=15" \
+  -F "max_frames=64" \
+  -F "include_embeddings=false"
+```
+
+`/infer/video/person-tracks` 会上传视频文件、按帧间隔抽帧，再复用检测 + ReID 流水线。响应中的每帧会包含 `source_frame_index` 和可推导的 `source_seconds`。
+
+视频流解析接口：
+
+```bash
+curl -X POST http://127.0.0.1:9001/infer/stream/person-tracks \
+  -F "stream_url=rtsp://user:password@camera-host/stream1" \
+  -F "frame_interval=15" \
+  -F "max_frames=32" \
+  -F "read_timeout_seconds=10"
+```
+
+`/infer/stream/person-tracks` 默认关闭，需要设置 `ALLOW_STREAM_URLS=true` 后才允许服务端主动拉取 RTSP/RTMP/HTTP/HTTPS 视频流。生产环境建议仅在可信内网启用，并通过网关限制可访问的摄像头地址。
+
+模型输出调试接口：
+
+```bash
+curl -X POST http://127.0.0.1:9001/debug/model-output \
+  -F "project_name=cross_camera_tracking" \
+  -F "model_name=yolov8n.onnx" \
+  -F "model_type=yolo" \
+  -F "sample_values=12" \
+  -F "file=@frame-001.jpg"
+```
+
+`/debug/model-output` 只返回输入 shape、输出 shape、min/max 和少量 sample 值，用于排查模型导出格式，不返回完整大 tensor。
 
 预热示例：
 
@@ -163,6 +277,27 @@ docker compose restart gpu-worker-0
 docker compose restart gpu-worker-1
 ```
 
+### 模型配置
+
+`models.yml` 用于声明业务模型类型、输入尺寸和后处理参数。没有配置的模型仍可通过 `/predict` 使用，但业务接口建议显式配置。
+
+```yaml
+models:
+  cross_camera_tracking/yolov8n.onnx:
+    type: yolo
+    input_size: [640, 640]
+    person_class_id: 0
+    confidence: 0.25
+    iou: 0.45
+  cross_camera_tracking/osnet_ibn_x1_0.onnx:
+    type: reid
+    input_size: [256, 128]
+    normalize: imagenet
+    embedding_normalize: l2
+```
+
+可以通过 `/model-configs` 查看当前加载的配置。
+
 ### 调用方建议
 
 - 低延迟场景建议业务侧固定访问某一个 worker，避免同一模型在多张卡上重复冷启动。
@@ -181,9 +316,10 @@ docker compose restart gpu-worker-1
 ### 可观测性
 
 - 每个 HTTP 请求都会返回 `X-Request-ID`。调用方也可以传入 `X-Request-ID`，服务会沿用该值。
-- `/predict` 响应包含 `request_id`、是否冷加载、排队耗时、模型加载耗时、推理耗时、总耗时。
-- 服务日志使用 JSON 字符串记录关键事件，包括 `http_request`、`predict_completed`、模型加载和模型卸载。
-- `/metrics` 暴露 Prometheus 文本格式指标，包括请求量、推理失败数、模型加载数、缓存命中/未命中、已加载模型数、排队耗时总和、推理耗时总和。
+- `/predict` 和业务接口响应包含 `request_id`、是否冷加载、排队耗时、模型加载耗时、推理耗时、总耗时。
+- 业务接口会额外记录 `decode_seconds`、`preprocess_seconds`、`postprocess_seconds`、`frame_count`、`person_count` 和 `inference_mode`。
+- 服务日志使用 JSON 字符串记录关键事件，包括 `http_request`、`predict_completed`、`persons_infer_completed`、`embeddings_infer_completed`、`person_tracks_infer_completed`、模型加载和模型卸载。
+- `/metrics` 暴露 Prometheus 文本格式指标，包括请求量、推理失败数、模型加载数、缓存命中/未命中、已加载模型数、排队耗时总和、推理耗时总和、图片解码耗时、预处理耗时、后处理耗时、检测人数和处理帧数。
 
 ## 业务容器接入
 
@@ -215,12 +351,24 @@ http://gpu-worker-1:8000/predict
 
 - `MODELS_HOST_DIR`: 宿主机模型共享目录，默认 `../shared-models`，即本项目同级目录。
 - `MODELS_ROOT`: 容器内模型目录，固定为 `/models`。
+- `MODEL_CONFIG_PATH`: 模型配置文件路径，镜像内默认使用 `/workspace/models.yml`，本地直接运行默认读取当前目录 `models.yml`。
 - `LOG_LEVEL`: 日志级别，默认 `INFO`。
 - `MAX_TENSOR_ITEMS`: 单次请求最大 tensor 元素数，默认 `12582912`。
 - `MAX_LOADED_MODELS`: 单 worker 最大缓存模型数，默认 `0` 表示不限制；正整数启用 LRU 淘汰。
 - `GPU_QUEUE_LIMIT`: 单 worker 同时进入 GPU 推理段的请求数，默认 `1`。
+- `MAX_IMAGE_BYTES`: `/infer/persons` 单张上传图片大小上限，默认 `10485760`。
+- `MAX_PERSON_FRAMES`: `/infer/persons` 单次请求图片数量上限，默认 `16`。
+- `MAX_EMBEDDING_IMAGES`: `/infer/person-embeddings` 单次请求图片数量上限，默认 `64`。
+- `MAX_PIPELINE_FRAMES`: `/infer/person-tracks` 单次请求帧数量上限，默认 `16`。
+- `MAX_VIDEO_BYTES`: `/infer/video/person-tracks` 单个视频文件大小上限，默认 `104857600`。
+- `VIDEO_FRAME_INTERVAL`: 离线视频默认抽帧间隔，默认 `15`。
+- `MAX_VIDEO_FRAMES`: 离线视频单次最多抽取帧数，默认 `64`。
+- `STREAM_FRAME_INTERVAL`: 视频流默认抽帧间隔，默认 `15`。
+- `MAX_STREAM_FRAMES`: 视频流单次最多抽取帧数，默认 `32`。
+- `STREAM_READ_TIMEOUT_SECONDS`: 视频流单次读取软超时，默认 `10`。
+- `ALLOW_STREAM_URLS`: 是否允许服务端主动拉取视频流 URL，默认 `false`。
 - `WARMUP_MODELS`: 容器启动时自动预热的模型列表，格式为逗号分隔的 `project/model.onnx`。
-- `API_TOKEN`: 可选接口令牌，留空时不启用鉴权；设置后 `/predict`、`/models`、`/model-info`、`/warmup`、`/reload`、`/unload` 需要携带令牌。
+- `API_TOKEN`: 可选接口令牌，留空时不启用鉴权；设置后业务接口、调试接口、模型管理接口和深度 ready 需要携带令牌。
 - `NVIDIA_VISIBLE_DEVICES`: 当前 worker 可见 GPU。
 - `NVIDIA_DRIVER_CAPABILITIES`: 默认 `compute,utility`。
 
@@ -244,10 +392,11 @@ curl -X POST http://127.0.0.1:9001/predict \
 - 模型按 `project_name/model_name` 懒加载并缓存。
 - 首次加载同一模型时使用加载锁，避免并发请求重复加载模型。
 - 支持启动预热、手动预热、手动卸载、手动重载和 LRU 缓存上限。
+- 支持模型配置文件，把 YOLO/ReID 的输入尺寸、类别 ID 和归一化策略显式化。
 - 每个模型有独立推理锁，同一模型在单个 worker 内串行推理。
 - 额外提供全局 GPU 推理信号量，避免不同模型同时挤占同一张 GPU。
 - 路径使用 `Path.resolve()` 限制在共享模型目录内，避免路径穿越。
-- `/ready` 会检查 `CUDAExecutionProvider` 是否可用。
+- `/ready` 会检查 `CUDAExecutionProvider` 是否可用，`/ready/deep` 可进一步检查配置模型、加载模型和 dummy inference。
 
 ## 压测记录模板
 

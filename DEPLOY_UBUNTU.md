@@ -288,7 +288,7 @@ cd /opt/gpu-services
 docker compose up -d --build
 ```
 
-构建镜像时会访问 Docker Hub、Ubuntu apt 源、deadsnakes Python 3.12 PPA、`bootstrap.pypa.io` 和 Python 包镜像源。服务器如果不能访问外网，建议在能联网的机器上构建镜像后推送到内网镜像仓库。
+构建镜像时会访问 Docker Hub、Ubuntu apt 源、deadsnakes Python 3.12 PPA 和 Python 包镜像源。Dockerfile 已将 Ubuntu apt 源切到清华镜像，并使用 `python3.12 -m ensurepip` 初始化 pip，避免访问 `bootstrap.pypa.io`。服务器如果不能访问外网，建议在能联网的机器上构建镜像后推送到内网镜像仓库。
 
 查看容器：
 
@@ -338,6 +338,20 @@ curl -H "Authorization: Bearer $TOKEN" \
   "http://127.0.0.1:9001/model-info?project_name=person_service&model_name=your_model.onnx"
 ```
 
+查看模型配置：
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:9001/model-configs
+```
+
+深度 readiness 检查：
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:9001/ready/deep?load_models=true"
+```
+
 手动预热：
 
 ```bash
@@ -364,6 +378,82 @@ curl -X POST http://127.0.0.1:9001/predict \
 ```
 
 注意：上面的 `tensor_data` 只是格式示例，实际 shape 必须匹配 ONNX 模型输入。
+
+多人检测请求示例：
+
+```bash
+curl -X POST http://127.0.0.1:9001/infer/persons \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Request-ID: persons-test-001" \
+  -F "project_name=cross_camera_tracking" \
+  -F "model_name=yolov8n.onnx" \
+  -F "confidence=0.25" \
+  -F "iou=0.45" \
+  -F "files=@frame-001.jpg" \
+  -F "files=@frame-002.jpg"
+```
+
+`/infer/persons` 直接返回每张图里的 `persons` 列表，包含人体框、置信度和类别信息。业务侧处理视频时，建议先按固定间隔抽帧，再把多张帧图作为 `files` 批量提交。
+
+ReID 向量请求示例：
+
+```bash
+curl -X POST http://127.0.0.1:9001/infer/person-embeddings \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "project_name=cross_camera_tracking" \
+  -F "model_name=osnet_ibn_x1_0.onnx" \
+  -F "include_vectors=true" \
+  -F "files=@person-001.jpg"
+```
+
+检测 + ReID 组合请求示例：
+
+```bash
+curl -X POST http://127.0.0.1:9001/infer/person-tracks \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "detector_project_name=cross_camera_tracking" \
+  -F "detector_model_name=yolov8n.onnx" \
+  -F "reid_project_name=cross_camera_tracking" \
+  -F "reid_model_name=osnet_ibn_x1_0.onnx" \
+  -F "include_embeddings=false" \
+  -F "files=@frame-001.jpg" \
+  -F "files=@frame-002.jpg"
+```
+
+离线视频解析请求示例：
+
+```bash
+curl -X POST http://127.0.0.1:9001/infer/video/person-tracks \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@clip.mp4" \
+  -F "frame_interval=15" \
+  -F "max_frames=64" \
+  -F "include_embeddings=false"
+```
+
+视频流解析请求示例：
+
+```bash
+curl -X POST http://127.0.0.1:9001/infer/stream/person-tracks \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "stream_url=rtsp://user:password@camera-host/stream1" \
+  -F "frame_interval=15" \
+  -F "max_frames=32" \
+  -F "read_timeout_seconds=10"
+```
+
+视频流解析默认关闭。需要在 `.env` 中设置 `ALLOW_STREAM_URLS=true` 并重建/重启容器后才会启用。生产环境建议只允许可信内网摄像头地址。
+
+模型输出调试：
+
+```bash
+curl -X POST http://127.0.0.1:9001/debug/model-output \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "project_name=cross_camera_tracking" \
+  -F "model_name=yolov8n.onnx" \
+  -F "model_type=yolo" \
+  -F "file=@frame-001.jpg"
+```
 
 ## 10. 业务容器接入
 

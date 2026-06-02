@@ -9,10 +9,15 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /workspace
 
-RUN apt-get update \
+RUN sed -i \
+        -e 's#http://archive.ubuntu.com/ubuntu/#https://mirrors.tuna.tsinghua.edu.cn/ubuntu/#g' \
+        -e 's#http://security.ubuntu.com/ubuntu/#https://mirrors.tuna.tsinghua.edu.cn/ubuntu/#g' \
+        /etc/apt/sources.list \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
-        curl \
+        libglib2.0-0 \
+        libgl1 \
         tzdata \
         software-properties-common \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
@@ -22,7 +27,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         python3.12 \
         python3.12-venv \
-    && curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12 \
+    && python3.12 -m ensurepip --upgrade \
     && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
     && ln -sf /usr/local/bin/pip /usr/local/bin/pip3 \
     && apt-get purge -y --auto-remove software-properties-common \
@@ -32,6 +37,7 @@ COPY requirements.txt /tmp/requirements.txt
 RUN python -m pip install --no-cache-dir -r /tmp/requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 COPY main.py /workspace/main.py
+COPY models.yml /workspace/models.yml
 
 EXPOSE 8000
 

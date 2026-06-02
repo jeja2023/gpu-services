@@ -1,0 +1,13 @@
+models:
+  cross_camera_tracking/yolov8n.onnx:
+    type: yolo
+    input_size: [640, 640]
+    person_class_id: 0
+    confidence: 0.25
+    iou: 0.45
+    classes: coco
+  cross_camera_tracking/osnet_ibn_x1_0.onnx:
+    type: reid
+    input_size: [256, 128]
+    normalize: imagenet
+    embedding_normalize: l2
