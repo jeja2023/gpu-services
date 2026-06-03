@@ -28,14 +28,15 @@ RUN sed -i \
         python3.12 \
         python3.12-venv \
     && python3.12 -m ensurepip --upgrade \
+    && python3.12 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
     && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
-    && ln -sf /usr/local/bin/pip /usr/local/bin/pip3 \
     && apt-get purge -y --auto-remove software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /tmp/requirements.txt
 RUN python -m pip install --no-cache-dir -r /tmp/requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
+COPY app /workspace/app
 COPY main.py /workspace/main.py
 COPY models.yml /workspace/models.yml
 

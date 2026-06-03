@@ -1,11 +1,27 @@
+# Python/runtime caches
 __pycache__/
+*.py[cod]
+*.pyc.*
+.pytest_cache/
 .pycache_check/
-*.pyc
-*.pyo
-*.pyd
+.mypy_cache/
+.ruff_cache/
+
+# Test/runtime scratch files
+.test_tmp/
+pytest-cache-files-*/
+.coverage
+htmlcov/
+rollout-audit*.jsonl
+runtime-state/
+*.log
+
+# Local OS/env files
 .DS_Store
 .env
 .venv
 venv/
 env/
+
+# Model artifacts are mounted or supplied out of band.
 models/

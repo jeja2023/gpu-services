@@ -190,9 +190,18 @@ nano .env
 
 ```dotenv
 LOG_LEVEL=INFO
+MODELS_HOST_DIR=../shared-models
+MODEL_CONFIG_HOST_FILE=./models.yml
+MODEL_CONFIG_PATH=/workspace/models.yml
 MAX_TENSOR_ITEMS=12582912
 MAX_LOADED_MODELS=0
 GPU_QUEUE_LIMIT=1
+MODEL_CONCURRENCY_LIMIT=1
+MODEL_QUEUE_TIMEOUT_SECONDS=0
+ENABLE_TENSORRT=false
+ALLOW_STREAM_URLS=false
+RUNTIME_STATE_HOST_DIR=./runtime-state
+ROLLOUT_AUDIT_PATH=/workspace/runtime-state/rollout-audit.jsonl
 WARMUP_MODELS=
 API_TOKEN=change-me-to-a-long-random-token
 GPU_WORKER_0_DEVICE=0
@@ -202,7 +211,11 @@ GPU_WORKER_1_DEVICE=1
 说明：
 
 - `API_TOKEN` 建议生产环境设置为长随机字符串。
+- `MODEL_CONFIG_HOST_FILE` 默认指向当前目录的 `models.yml`，该文件会可写挂载进容器；别名切换、灰度和回滚写回后可持久化。
+- `RUNTIME_STATE_HOST_DIR` 默认保存审计日志等运行期文件，容器重建后不会丢失。
 - `WARMUP_MODELS` 可写成 `person_service/reid.onnx,person_service/face.onnx`。
+- `MODEL_CONCURRENCY_LIMIT` 和 `GPU_QUEUE_LIMIT` 建议先保持 `1`，压测后再提高。
+- `ENABLE_TENSORRT=true` 只在确认容器内 ONNX Runtime 暴露 `TensorrtExecutionProvider` 后开启。
 - 如果服务器只有 1 张 GPU，先删除或注释 `docker-compose.yml` 里的 `gpu-worker-1` 服务，或者只启动 `gpu-worker-0`。
 
 生成随机 token 示例：
@@ -279,12 +292,34 @@ done
 
 确认新结构没问题后，再按需清理旧的 `models` 子目录。
 
+上线前建议先校验模型包。开发依赖只用于服务器验收，不会进入生产镜像：
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+python3 tools/validate_model_package.py \
+  --config models.yml \
+  --models-root ../shared-models \
+  --strict-hash \
+  --strict-sidecars
+```
+
+如果模型刚开始接入、sha256 或侧车文件还没补齐，可以先去掉 `--strict-hash --strict-sidecars` 查看告警；正式上线前应补齐模型卡、labels 或类别定义、sha256。
+
+同时执行本地部署静态检查：
+
+```bash
+python3 tools/deploy_check.py --import-app
+pytest -q
+```
+
 ## 8. 构建并启动服务
 
 在项目目录执行：
 
 ```bash
 cd /opt/gpu-services
+test -f models.yml
+mkdir -p ./runtime-state
 docker compose up -d --build
 ```
 
@@ -329,6 +364,108 @@ curl http://127.0.0.1:9001/ready
 
 ```bash
 TOKEN="你的API_TOKEN"
+```
+
+推荐用内置 smoke test 做一次完整接口检查：
+
+```bash
+python3 tools/service_smoke_test.py \
+  --base-url http://127.0.0.1:9001 \
+  --token "$TOKEN" \
+  --require-ready \
+  --model-id person_detector_default
+```
+
+如果需要在上线前加载模型并跑 dummy inference：
+
+```bash
+python3 tools/service_smoke_test.py \
+  --base-url http://127.0.0.1:9001 \
+  --token "$TOKEN" \
+  --require-ready \
+  --deep-ready \
+  --load-models \
+  --dummy-inference
+```
+
+如果已经准备固定样例回归集，可以继续执行：
+
+```bash
+python3 tools/regression_check.py \
+  --manifest regression.yml \
+  --base-url http://127.0.0.1:9001 \
+  --token "$TOKEN"
+```
+
+新模型通过校验后，可以用别名切换接口发布。先 dry-run：
+
+```bash
+curl -X POST http://127.0.0.1:9001/rollout/aliases/switch \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "alias_name": "person_detector_default",
+    "target_model_id": "cross_camera_tracking/person_detector_yolov8n_v1.1.0_fp32.onnx",
+    "expected_current_target": "cross_camera_tracking/yolov8n.onnx",
+    "dry_run": true
+  }'
+```
+
+确认目标、模型包和回归结果都正确后，将 `dry_run` 改为 `false`。需要撤回时：
+
+`docker-compose.yml` 默认把 `models.yml` 可写挂载到所有 worker。切换接口会写回这个宿主机文件并重载当前 worker；其它 worker 可以通过统一控制工具同步配置：
+
+```bash
+python3 tools/worker_control.py --action reload-config --token "$TOKEN"
+```
+
+```bash
+curl -X POST http://127.0.0.1:9001/rollout/aliases/rollback \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"alias_name":"person_detector_default","dry_run":false}'
+```
+
+如果需要按比例灰度，可以配置 weighted alias。下面示例表示 90% 旧模型、10% 新模型：
+
+```bash
+curl -X POST http://127.0.0.1:9001/rollout/aliases/weighted \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "alias_name": "person_detector_default",
+    "expected_current_target": "cross_camera_tracking/yolov8n.onnx",
+    "dry_run": true,
+    "targets": [
+      {"target_model_id": "cross_camera_tracking/yolov8n.onnx", "weight": 90, "status": "active"},
+      {"target_model_id": "cross_camera_tracking/person_detector_yolov8n_v1.1.0_fp32.onnx", "weight": 10, "status": "candidate"}
+    ]
+  }'
+```
+
+预览某个业务 key 的命中结果：
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:9001/rollout/aliases/preview?alias_name=person_detector_default&traffic_key=customer-001"
+```
+
+多个 worker 的健康检查、配置重载和预热可以用统一控制工具：
+
+```bash
+python3 tools/worker_control.py --action health
+python3 tools/worker_control.py --action reload-config --token "$TOKEN"
+python3 tools/worker_control.py --action warmup --token "$TOKEN" --model cross_camera_tracking/yolov8n.onnx
+```
+
+如果 worker 端口不是默认的 `9001/9002`，可以重复传入 `--base-url`：
+
+```bash
+python3 tools/worker_control.py \
+  --base-url http://127.0.0.1:9001 \
+  --base-url http://127.0.0.1:9002 \
+  --action aliases \
+  --token "$TOKEN"
 ```
 
 查看模型元信息：

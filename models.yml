@@ -1,13 +1,57 @@
+aliases:
+  person_detector_default:
+    target: cross_camera_tracking/yolov8n.onnx
+  person_reid_default:
+    target: cross_camera_tracking/osnet_ibn_x1_0.onnx
+
 models:
   cross_camera_tracking/yolov8n.onnx:
+    task: detection
     type: yolo
-    input_size: [640, 640]
-    person_class_id: 0
-    confidence: 0.25
-    iou: 0.45
-    classes: coco
+    runtime: onnxruntime
+    version: 1.0.0
+    precision: fp32
+    input:
+      size: [640, 640]
+      layout: nchw
+      dtype: float32
+      color: rgb
+      resize: letterbox
+      normalize: none
+    output:
+      format: yolo
+      classes: coco
+      class_filter: [person]
+      confidence: 0.25
+      iou: 0.45
+      max_detections: 100
+    artifact:
+      model_card: yolov8n.model-card.yml
+      labels: yolov8n.labels.txt
+      sha256: ""
+    rollout:
+      status: active
+      warmup: false
+
   cross_camera_tracking/osnet_ibn_x1_0.onnx:
+    task: reid
     type: reid
-    input_size: [256, 128]
-    normalize: imagenet
-    embedding_normalize: l2
+    runtime: onnxruntime
+    version: 1.0.0
+    precision: fp32
+    input:
+      size: [256, 128]
+      layout: nchw
+      dtype: float32
+      color: rgb
+      resize: stretch
+      normalize: imagenet
+    output:
+      format: embedding
+      embedding_normalize: l2
+    artifact:
+      model_card: osnet_ibn_x1_0.model-card.yml
+      sha256: ""
+    rollout:
+      status: active
+      warmup: false
